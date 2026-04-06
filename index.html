@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Word AI Assistant</title>
+    <script type="text/javascript" src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    <!-- PDF.js for reading PDF files -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <!-- mammoth.js for reading DOCX files -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.7.0/mammoth.browser.min.js"></script>
+    <link rel="stylesheet" href="./src/taskpane.css" />
+</head>
+<body>
+    <div id="app">
+
+        <!-- Header -->
+        <header class="header">
+            <h1>מסייע Word AI</h1>
+            <div class="header-actions">
+                <button id="toggleMaterials" class="icon-btn materials-btn" title="חומרי לימוד">📖</button>
+                <button id="toggleSettings" class="icon-btn" title="הגדרות">⚙️</button>
+            </div>
+        </header>
+
+        <!-- Settings Panel (Hidden by default) -->
+        <div id="settingsPanel" class="settings-panel hidden">
+            <label for="apiKey">מפתח Gemini API:</label>
+            <div class="input-row">
+                <input type="password" id="apiKey" placeholder="הזן מפתח API של Google..." />
+            </div>
+            <label for="perplexityApiKey">מפתח Perplexity API:</label>
+            <div class="input-row">
+                <input type="password" id="perplexityApiKey" placeholder="הזן מפתח API של Perplexity..." />
+            </div>
+            <button id="saveKeyBtn" class="btn-primary btn-settings-save">שמור הגדרות</button>
+            <small id="keyStatus" class="key-status"></small>
+            <div class="settings-toggle-row">
+                <label class="toggle-label" for="directInsertMode">
+                    <span>הכנסה ישירה למסמך (ללא תיבת פלט)</span>
+                    <small>תשובות ייכנסו אוטומטית כ-Track Change מתחת לסימון</small>
+                </label>
+                <label class="switch">
+                    <input type="checkbox" id="directInsertMode" />
+                    <span class="slider"></span>
+                </label>
+            </div>
+        </div>
+
+        <!-- Materials Panel -->
+        <div id="materialsPanel" class="materials-panel hidden">
+            <div class="materials-panel-header">
+                <strong>📖 חומרי לימוד כהקשר ל-AI</strong>
+                <small>המידע יוזרק אוטומטית לכל קריאת AI כשמוזן כאן</small>
+            </div>
+            <label class="materials-label" for="refMaterials">📄 חומרי עזר (מאמרים, ספרות, קריאות חובה)</label>
+            <textarea id="refMaterials" class="materials-textarea" placeholder="הדבק כאן קטעים מספרים, מאמרים אקדמיים, קריאות חובה שנדרשות בקורס..."></textarea>
+            <div class="file-upload-row">
+                <label class="file-upload-btn" for="refMaterialsFile">📎 העלה קובץ</label>
+                <input type="file" id="refMaterialsFile" class="file-input-hidden" accept=".txt,.md,.pdf,.docx" multiple />
+                <span id="refMaterialsFileStatus" class="file-upload-status">TXT · PDF · DOCX</span>
+            </div>
+            <label class="materials-label" for="classMaterials">🏫 חומר שנלמד בכיתה (הרצאות, כיתה)</label>
+            <textarea id="classMaterials" class="materials-textarea" placeholder="הדבק כאן תמלילי הרצאות, הערות כיתה, סיכומים של החומר שנלמד..."></textarea>
+            <div class="file-upload-row">
+                <label class="file-upload-btn" for="classMaterialsFile">📎 העלה קובץ</label>
+                <input type="file" id="classMaterialsFile" class="file-input-hidden" accept=".txt,.md,.pdf,.docx" multiple />
+                <span id="classMaterialsFileStatus" class="file-upload-status">TXT · PDF · DOCX</span>
+            </div>
+            <div class="materials-actions">
+                <button id="saveMaterialsBtn" class="btn-primary btn-settings-save">💾 שמור חומרים</button>
+                <button id="clearMaterialsBtn" class="btn-outline btn-clear">🗑 נקה הכל</button>
+            </div>
+            <small id="materialsStatus" class="key-status"></small>
+        </div>
+
+        <!-- Toast notification -->
+        <div id="insertToast" class="insert-toast hidden">✅ הוכנס למסמך</div>
+
+        <!-- Tab Navigation -->
+        <nav class="tab-nav">
+            <button class="tab-btn active" data-tab="editor">📝 עורך</button>
+            <button class="tab-btn" data-tab="chat">💬 צ'אט</button>
+            <button class="tab-btn" data-tab="research">📚 מחקר</button>
+            <button class="tab-btn" data-tab="lecturer">🎓 מרצה</button>
+            <button class="tab-btn" data-tab="studio">🎨 סטודיו</button>
+        </nav>
+
+        <!-- ======================== EDITOR TAB ======================== -->
+        <div id="tab-editor" class="tab-content active">
+
+            <div class="context-box">
+                <div class="context-label">
+                    <span>📄 טקסט מסומן</span>
+                    <span id="selectionBadge" class="badge badge-empty">ריק</span>
+                </div>
+                <div id="selectedTextDisplay" class="scroll-box empty-state">סמן טקסט במסמך...</div>
+            </div>
+
+            <div class="section-header">פעולות מהירות</div>
+            <div class="action-grid">
+                <button class="action-card" data-action="fix">
+                    <span class="action-icon">✨</span>
+                    <span class="action-label">תיקון שגיאות</span>
+                </button>
+                <button class="action-card" data-action="summarize">
+                    <span class="action-icon">📝</span>
+                    <span class="action-label">סיכום קצר</span>
+                </button>
+                <button class="action-card" data-action="professional">
+                    <span class="action-icon">👔</span>
+                    <span class="action-label">שכתוב עסקי</span>
+                </button>
+                <button class="action-card" data-action="translate">
+                    <span class="action-icon">🌍</span>
+                    <span class="action-label">לאנגלית</span>
+                </button>
+                <button class="action-card" data-action="find_errors">
+                    <span class="action-icon">🧐</span>
+                    <span class="action-label">חוסר דיוקים</span>
+                </button>
+                <button class="action-card" data-action="plant_errors">
+                    <span class="action-icon">🧘</span>
+                    <span class="action-label">האנשה (Humanize)</span>
+                </button>
+                <button class="action-card" data-action="continue">
+                    <span class="action-icon">✍️</span>
+                    <span class="action-label">המשך כתיבה</span>
+                </button>
+            </div>
+
+            <div class="section-header">סגנון כתיבה</div>
+            <select id="toneSelector" class="tone-select">
+                <option value="student">👨‍🎓 סטודנט חכם (הסוואה אנושית)</option>
+                <option value="academic">🎓 אקדמי-מקצועי</option>
+                <option value="casual">😎 קליל / חופשי</option>
+                <option value="argumentative">⚖️ ביקורתי / משכנע</option>
+            </select>
+
+            <div class="section-header">הנחיה חופשית</div>
+            <div class="prompt-row">
+                <textarea id="prompt" placeholder="שאל או בקש כל דבר..."></textarea>
+                <button id="voiceBtn" class="voice-btn" title="הכתבה קולית">🎤</button>
+            </div>
+            <div class="send-row">
+                <div class="insert-mode-toggle" id="insertModeToggle">
+                    <button class="mode-btn active" data-mode="cursor">📍 לפי סמן</button>
+                    <button class="mode-btn" data-mode="sections">📋 לפי סעיפים</button>
+                </div>
+                <button id="sendToAI" class="btn-primary">שלח ל-AI</button>
+            </div>
+
+            <div id="sectionGuidelinesArea" class="hidden">
+                <div class="section-write-intro">הדבק את שאלות/סעיפי המרצה — ה-AI יכתוב תשובה אקדמית לכל סעיף בנפרד, ישירות למסמך.</div>
+                <textarea id="sectionGuidelines" placeholder="הדבק כאן את הנחיות/שאלות המרצה, למשל:&#10;סעיף א. הסבר את תיאוריית...&#10;סעיף ב. נתח את..." rows="5"></textarea>
+            </div>
+
+            <div id="sectionWriteProgress" class="section-write-progress hidden">
+                <div class="swp-header">מזהה ומכתיב לפי סעיפים...</div>
+                <div id="sectionWriteSteps" class="swp-steps"></div>
+            </div>
+
+            <div id="editorResponseContainer" class="response-container hidden">
+                <div class="section-header">תשובת ה-AI</div>
+                <div id="editorResponse" class="scroll-box"></div>
+                <div class="response-actions">
+                    <button id="insertTracked" class="btn-success">📌 הכנס כ-Track Change</button>
+                    <button id="copyResponse" class="btn-outline">📋 העתק</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ======================== CHAT TAB ======================== -->
+        <div id="tab-chat" class="tab-content hidden">
+            <div id="chatMessages" class="chat-messages">
+                <div class="chat-bubble ai">
+                    שלום! אני קורא את כל המסמך שלך ברקע. שאל אותי הכל 🙂
+                </div>
+            </div>
+            <div class="chat-input-row">
+                <textarea id="chatInput" placeholder="שאל שאלה על המסמך..." rows="2"></textarea>
+                <button id="sendChat" class="chat-send-btn">➤</button>
+            </div>
+        </div>
+
+        <!-- ======================== LECTURER TAB ======================== -->
+        <div id="tab-lecturer" class="tab-content hidden">
+            <div class="lecturer-intro">
+                <strong>🎓 מצב מרצה</strong>
+                <p>הדבק כאן את הנחיות המטלה / קריטריוני הבדיקה. ה-AI יבדוק את המסמך שלך מולן ויציג הצעות תיקון מיידיות.</p>
+            </div>
+
+            <div class="section-header">הנחיות / קריטריוני הבדיקה</div>
+            <textarea id="lecturerGuidelines" placeholder="הדבק כאן את הוראות המרצה, שאלות, קריטריוני ניקוד וכו'..." rows="6"></textarea>
+
+            <div class="action-grid" style="margin-top: 8px; margin-bottom: 16px;">
+                <button class="action-card" id="btnGenerateCoverPage" style="grid-column: span 2; border-right: 4px solid var(--primary);">
+                    <span class="action-icon">📄</span>
+                    <span class="action-label">צור דף שער למסמך (Track Change)</span>
+                </button>
+            </div>
+
+            <div class="section-header">רמת קפדנות</div>
+            <select id="lecturerStrictness" class="tone-select">
+                <option value="standard">📋 רגיל – הערות כלליות על חוסרים ושגיאות</option>
+                <option value="strict">🔬 מחמיר – כל חריגה קטנה מסומנת</option>
+                <option value="mentor">🤝 מנחה – ביקורת בונה עם הצעות לשיפור</option>
+            </select>
+
+            <button id="runLecturerReview" class="btn-primary btn-lecturer">🎓 בדוק את העבודה</button>
+
+            <div id="lecturerResultContainer" class="response-container hidden">
+                <div class="section-header">דו"ח הבדיקה</div>
+                <div id="lecturerReport" class="scroll-box lecturer-report"></div>
+                <div class="response-actions">
+                    <button id="applyAllSuggestions" class="btn-success">✅ החל הצעות כ-Track Changes</button>
+                    <button id="copyReport" class="btn-outline">📋 העתק דו"ח</button>
+                </div>
+            </div>
+            <div id="lecturerStatus" class="status-bar" style="margin-top: 8px; border-radius: 6px;">מוכן לבדיקה</div>
+        </div>
+
+        <!-- ======================== RESEARCH TAB ======================== -->
+        <div id="tab-research" class="tab-content hidden">
+            <div class="lecturer-intro">
+                <strong>📚 מחקר אקדמי קונטקסטואלי</strong>
+                <p>הסמן/סימון מהמסמך נשאב לכאן. הסתייע ב-Perplexity כדי לגבות את טענותיך או לסרוק עמודים לביבליוגרפיה תקנית מלאה.</p>
+            </div>
+
+            <div class="section-header">הטענה/המשפט הנוכחי</div>
+            <textarea id="researchQuery" placeholder="..." rows="3"></textarea>
+
+            <div class="section-header" style="margin-top: 10px;">עומק מחקר</div>
+            <div class="depth-selector">
+                <label class="depth-option">
+                    <input type="radio" name="researchDepth" value="quick" checked>
+                    <div class="depth-pill">
+                        <span class="depth-icon">⚡</span>
+                        <div>
+                            <strong>מהיר</strong>
+                            <small>פסקה + מקורות ישירים</small>
+                        </div>
+                    </div>
+                </label>
+                <label class="depth-option">
+                    <input type="radio" name="researchDepth" value="deep">
+                    <div class="depth-pill depth-pill-deep">
+                        <span class="depth-icon">🔬</span>
+                        <div>
+                            <strong>עמוק (Multi-Layer)</strong>
+                            <small>מקורות → ציטוטים → סינתזה</small>
+                        </div>
+                    </div>
+                </label>
+            </div>
+
+            <div class="action-grid" style="margin-top: 8px;">
+                <button class="action-card action-academic" id="btnSupportClaim" style="border-right: 4px solid var(--primary);">
+                    <span class="action-icon">👍</span>
+                    <span class="action-label">תמוך בטענה</span>
+                </button>
+                <button class="action-card action-academic-alt" id="btnContradictClaim" style="border-right: 4px solid #d83b01;">
+                    <span class="action-icon">👎</span>
+                    <span class="action-label">סתר טענה</span>
+                </button>
+                <button class="action-card" id="btnDirectQuote" style="grid-column: span 2; border-right: 4px solid #00aba9;">
+                    <span class="action-icon">💬</span>
+                    <span class="action-label">מצא ציטוט ישיר מהספרות</span>
+                </button>
+            </div>
+
+            <div id="deepResearchProgress" class="deep-progress hidden">
+                <div class="deep-step" id="dstep1">
+                    <span class="step-num">1</span>
+                    <span class="step-label">מחפש מקורות אקדמיים (Perplexity)...</span>
+                    <span class="step-status">–</span>
+                </div>
+                <div class="deep-step" id="dstep2">
+                    <span class="step-num">2</span>
+                    <span class="step-label">בונה סינתזה אקדמית (Gemini)...</span>
+                    <span class="step-status">–</span>
+                </div>
+            </div>
+
+            <div id="researchResponseContainer" class="response-container hidden" style="margin-top:12px;">
+                <div class="section-header">תוצאת המחקר</div>
+                <div id="researchResponseText" class="scroll-box"></div>
+                <div class="response-actions">
+                    <button id="insertResearchTracked" class="btn-success">📌 הכנס כמקור למסמך (Track Change)</button>
+                </div>
+            </div>
+
+            <div class="section-header" style="margin-top: 16px;">אוטומציה ביבליוגרפית</div>
+            <div class="biblio-box" style="flex-direction: column; align-items: stretch; text-align: right;">
+                <div style="font-size: 0.8rem; color: var(--muted); margin-bottom: 6px;">
+                    ה-AI יקרא את <b>כל</b> המסמך הנוכחי, יזהה ציטוטים פנימיים וייצר עבורם רשימת מקורות (APA) אוטומטית מלאה שתוזרק לסוף הקובץ. 
+                </div>
+                <button id="btnScanBiblio" class="btn-primary" style="background:#5a2c85;">📑 סרוק מסמך וצור ביבליוגרפיה (APA)</button>
+            </div>
+
+            <div id="researchStatus" class="status-bar" style="margin-top: 8px; border-radius: 6px;">מוכן לחקור</div>
+        </div>
+        <div id="tab-studio" class="tab-content hidden">
+            <p class="studio-intro">🎨 תאר תמונה וה-AI יצור אותה וישתול אותה ישירות במסמך שלך.</p>
+            <div class="section-header">תיאור התמונה</div>
+            <textarea id="imagePrompt" placeholder="לדוגמה: 'גרף עוגה שמראה חלוקת שוק בין 4 חברות טכנולוגיה'" rows="4"></textarea>
+            <button id="generateImage" class="btn-primary">🎨 צור תמונה</button>
+
+            <div id="studioResponseContainer" class="response-container hidden">
+                <div id="imagePreview" class="image-preview"></div>
+                <button id="insertImage" class="btn-success">📥 שתול במסמך</button>
+            </div>
+
+            <div id="studioStatus" class="status-bar">מוכן ליצירה</div>
+        </div>
+
+        <!-- Global Status Bar -->
+        <div id="status" class="status-bar">מוכן לעבודה</div>
+    </div>
+
+    <script type="module" src="./src/taskpane.js"></script>
+</body>
+</html>
