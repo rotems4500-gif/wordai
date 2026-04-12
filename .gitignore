@@ -15,5 +15,6 @@ test_gemini.js
 
 # Local personal data and temporary development files
 my_personal_style.json
-past-works/
+past-works/*
+!past-works/.gitkeep
 src/__TEMP_ROUTING_OVERRIDE.js
