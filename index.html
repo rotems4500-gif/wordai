@@ -40,10 +40,28 @@
             <small id="keyStatus" class="key-status"></small>
 
             <div class="panel-section-divider"></div>
-            <div class="panel-subtitle">📖 חומרי לימוד כהקשר</div>
-            <small class="panel-hint">יוזרק אוטומטית לכל קריאת AI</small>
-            <textarea id="refMaterials" class="panel-textarea" placeholder="מאמרים, ספרות, קריאות חובה..."></textarea>
-            <textarea id="classMaterials" class="panel-textarea" placeholder="חומר כיתה, הרצאות, סיכומים..." style="margin-top:6px;"></textarea>
+            <div class="panel-subtitle">☁️ ספריית לימודים בענן</div>
+            <small class="panel-hint">ללא התחברות. אפשר לטעון חומר מתיקיית הפרויקט או מקישור ציבורי.</small>
+
+            <label class="panel-label" style="margin-top:8px;">קישור ציבורי לקובץ</label>
+            <div class="cloud-link-row">
+                <input type="url" id="cloudPublicUrl" class="cloud-link-input" placeholder="https://... או gs://bucket/path/file.pdf" autocomplete="off" />
+                <button id="cloudImportUrlBtn" class="btn-outline" type="button">ייבא</button>
+            </div>
+            <label class="cloud-download-toggle">
+                <input type="checkbox" id="cloudDownloadToLocalToggle" />
+                <span>הורד לתיקייה המקומית לפני טעינה</span>
+            </label>
+
+            <div id="cloudLoading" class="cloud-loading hidden">⏳ טוען נתוני ענן...</div>
+
+            <small id="cloudAuthStatus" class="key-status">ללא התחברות</small>
+            <label class="panel-label" style="margin-top:8px;">בחירת תתי-תיקיות (נושאים/קורסים)</label>
+            <div id="cloudFolderFilters" class="cloud-folder-filters"></div>
+            <div id="cloudMaterialsList" class="cloud-materials-list">טוען חומרים מתיקיית הפרויקט...</div>
+            <label class="panel-label" style="margin-top:8px;">אינדקס תוכן עניינים</label>
+            <div id="cloudIndexList" class="cloud-index-list">אין עדיין תוכן להצגה</div>
+            <small id="cloudMaterialsStatus" class="key-status"></small>
 
             <div class="panel-section-divider"></div>
             <div class="panel-subtitle">🧭 כללי כתיבה לסוכן</div>
@@ -60,7 +78,7 @@
                 <span id="assignmentGuidelinesStatus" class="file-upload-status"></span>
             </div>
             <label class="panel-label" style="margin-top:8px;">רמת בדיקה</label>
-            <select id="reviewDepth" class="panel-select">
+            <select id="reviewDepth" class="panel-select" title="בחירת רמת בדיקה" aria-label="בחירת רמת בדיקה">
                 <option value="basic">בסיסית (נקודות עיקריות)</option>
                 <option value="standard" selected>רגילה (מאוזנת)</option>
                 <option value="strict">מחמירה (כמו בודק קפדן)</option>
@@ -75,7 +93,7 @@
             <small class="panel-hint">כאן תראה שלבים אמיתיים של ניתוב, בניית הקשר, ושליחת בקשות.</small>
             <pre id="debugLog" class="debug-log">דיבאג כבוי</pre>
 
-            <button id="saveMaterialsBtn" class="btn-outline" style="margin-top:6px;width:100%;">שמור חומרים</button>
+            <button id="saveMaterialsBtn" class="btn-outline" style="margin-top:6px;width:100%;">שמור הגדרות</button>
             <small id="materialsStatus" class="key-status"></small>
         </div>
 

@@ -152,6 +152,145 @@ html, body {
 
 .key-status { display: block; margin-top: 5px; font-size: 0.75rem; color: var(--muted); }
 
+.cloud-loading {
+    margin-top: 6px;
+    padding: 6px 8px;
+    border: 1px dashed #9cc6ef;
+    border-radius: var(--radius-sm);
+    background: #f0f7ff;
+    font-size: 0.76rem;
+    color: #1f4f7a;
+}
+
+.cloud-auth-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.cloud-auth-actions .btn-primary,
+.cloud-auth-actions .btn-outline {
+    flex: 1;
+}
+
+.cloud-course-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.cloud-course-row .panel-select {
+    flex: 1;
+}
+
+.cloud-materials-list {
+    margin-top: 8px;
+    max-height: 180px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: #fff;
+    padding: 6px;
+    font-size: 0.78rem;
+}
+
+.cloud-material-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 6px;
+    align-items: start;
+    padding: 5px 2px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.cloud-material-row:last-child {
+    border-bottom: 0;
+}
+
+.cloud-material-title {
+    font-weight: 600;
+    color: #1f2937;
+}
+
+.cloud-material-meta {
+    color: var(--muted);
+    font-size: 0.72rem;
+}
+
+.cloud-material-toc {
+    margin-top: 2px;
+    color: #334155;
+    font-size: 0.7rem;
+    line-height: 1.3;
+}
+
+.cloud-material-state {
+    font-size: 0.7rem;
+    color: #6b7280;
+    white-space: nowrap;
+}
+
+.cloud-material-state.ready {
+    color: #0b6b0b;
+}
+
+.cloud-material-state.error {
+    color: #b42318;
+}
+
+.cloud-folder-filters {
+    margin-top: 6px;
+    max-height: 110px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: #fff;
+    padding: 6px;
+}
+
+.cloud-folder-filter-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.76rem;
+    padding: 3px 0;
+}
+
+.cloud-index-list {
+    margin-top: 6px;
+    max-height: 180px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: #fff;
+    padding: 6px;
+    font-size: 0.75rem;
+}
+
+.cloud-index-group {
+    border-bottom: 1px solid #f1f5f9;
+    padding: 2px 0;
+}
+
+.cloud-index-group:last-child {
+    border-bottom: 0;
+}
+
+.cloud-index-list-items {
+    margin: 4px 0 6px;
+    padding: 0 18px 0 0;
+}
+
+.cloud-index-item-title {
+    font-weight: 600;
+    color: #0f172a;
+}
+
+.cloud-index-sublist {
+    margin: 2px 0 6px;
+    padding: 0 16px 0 0;
+    color: #475569;
+}
+
 .debug-toggle-row {
     display: flex;
     align-items: center;
@@ -318,6 +457,42 @@ html, body {
 .btn-mini {
     padding: 3px 8px;
     font-size: 0.72rem;
+}
+
+.cloud-link-row {
+    display: flex;
+    gap: 6px;
+    margin-top: 4px;
+    align-items: center;
+}
+
+.cloud-link-input {
+    flex: 1;
+    min-width: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 6px 8px;
+    font-size: 0.78rem;
+    font-family: inherit;
+}
+
+.cloud-link-input:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+.cloud-download-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    font-size: 0.76rem;
+    color: var(--muted);
+    cursor: pointer;
+}
+
+.cloud-download-toggle input {
+    margin: 0;
 }
 
 .exceptions-board {
@@ -722,3 +897,4 @@ html, body {
     overflow: hidden;
     text-overflow: ellipsis;
 }
+

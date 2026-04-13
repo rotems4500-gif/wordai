@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Google Sign-In</title>
+    <script type="text/javascript" src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    <style>
+        html, body {
+            font-family: "Segoe UI", Tahoma, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: #f7f9fc;
+            color: #1f2937;
+        }
+        .wrap {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            box-sizing: border-box;
+        }
+        .card {
+            width: 100%;
+            max-width: 380px;
+            border: 1px solid #d8e3f3;
+            border-radius: 10px;
+            padding: 18px;
+            background: #fff;
+            box-shadow: 0 4px 18px rgba(16, 24, 40, 0.08);
+        }
+        .title {
+            font-size: 16px;
+            font-weight: 700;
+            margin: 0 0 8px;
+        }
+        .status {
+            font-size: 13px;
+            color: #334155;
+            margin: 0;
+            white-space: pre-wrap;
+        }
+        .btn {
+            margin-top: 12px;
+            width: 100%;
+            border: 1px solid #c8d7ee;
+            border-radius: 8px;
+            background: #ffffff;
+            color: #0f172a;
+            padding: 10px 12px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .btn:hover {
+            background: #f1f5f9;
+        }
+        .btn:disabled {
+            opacity: 0.7;
+            cursor: wait;
+        }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="card">
+            <h1 class="title">התחברות לחשבון Google</h1>
+            <p id="status" class="status">פותח תהליך התחברות...</p>
+            <button id="startGoogleAuth" class="btn" type="button">התחבר עם Google</button>
+        </div>
+    </div>
+    <script type="module" src="./src/auth-dialog.js"></script>
+</body>
+</html>

@@ -15,6 +15,9 @@ const DEBUG_MODE_KEY = "debugModeEnabled";
 const ASSIGNMENT_GUIDELINES_KEY = "assignmentGuidelinesText";
 const REVIEW_DEPTH_KEY = "reviewDepthLevel";
 const ASSIGNMENT_GUIDELINES_FILE_NAME_KEY = "assignmentGuidelinesFileName";
+const CLOUD_SELECTED_IDS_KEY = "cloudSelectedMaterialIds";
+const CLOUD_SELECTED_FOLDER_KEYS_KEY = "cloudSelectedFolderKeys";
+const PROJECT_MATERIALS_INDEX_URL = "/project-materials/index.json";
 const MIN_LEARNED_VOCAB_COUNT = 2;
 const MIN_LEARNED_PHRASE_COUNT = 2;
 const MAX_COUNT_PER_FILE = 6;
@@ -43,6 +46,11 @@ const AGENTS_CONFIG = {
 let activeAgentId = null;
 
 let assignmentGuidelinesFromFile = "";
+let cloudMaterials = [];
+let cloudSelectedMaterialIds = new Set();
+let cloudSelectedFolderKeys = new Set();
+let cloudMaterialTextCache = new Map();
+let cloudMaterialLoadState = new Map();
 
 // ─── System Instructions ──────────────────────────────────────────────────
 const SYSTEM_INSTRUCTIONS = `CRITICAL SYSTEM INSTRUCTIONS FOR ADVANCED HUMAN CAMOUFLAGE (V3.0):
@@ -300,7 +308,8 @@ function createChatSession(initialTitle = "שיחה חדשה") {
 }
 
 function getWelcomeMessage() {
-    return `שלום! אני קורא את המסמך שלך ומשלב את הסגנון האישי שלך בכל תשובה 🎯\n\nמה אני יודע לעשות:\n✍️ לכתוב, לנסח ולשכתב — בסגנון שלך\n✨ לתקן ולשפר טקסט מסומן\n📚 למצוא מקורות וציטוטים אקדמיים (Perplexity)\n🧬 לבצע האנשה אגרסיבית לטקסט\n\nפשוט שאל, או לחץ על אחד הקיצורים למטה.`;
+    const userName = localStorage.getItem("userName") || "משתמש"; // הוספת שם משתמש אם קיים
+    return `שלום ${userName}! אני קורא את המסמך שלך ומשלב את הסגנון האישי שלך בכל תשובה 🎯\n\nמה אני יודע לעשות:\n✍️ לכתוב, לנסח ולשכתב — בסגנון שלך\n✨ לתקן ולשפר טקסט מסומן\n📚 למצוא מקורות וציטוטים אקדמיים (Perplexity)\n🧬 לבצע האנשה אגרסיבית לטקסט\n\n פשוט שאל, או לחץ על אחד הקיצורים למטה.`;
 }
 
 function deriveChatTitle(messages = []) {
@@ -388,10 +397,22 @@ function renderChatHistory() {
     if (!chatHistory.length) {
         const welcome = document.createElement("div");
         welcome.className = "chat-bubble ai";
+        welcome.style.backgroundColor = "#f0f8ff"; // צבע רקע ייחודי
+        welcome.style.borderRadius = "10px"; // פינות מעוגלות
+        welcome.style.padding = "10px"; // ריווח פנימי
         welcome.innerText = getWelcomeMessage();
         msgs.appendChild(welcome);
     } else {
-        chatHistory.forEach(message => addChatBubble(message.text, message.role));
+        chatHistory.forEach(message => {
+            const bubble = document.createElement("div");
+            bubble.className = `chat-bubble ${message.role}`;
+            bubble.style.marginBottom = "8px"; // ריווח בין בועות
+            bubble.style.padding = "10px";
+            bubble.style.borderRadius = "10px";
+            bubble.style.backgroundColor = message.role === "ai" ? "#e6ffe6" : "#fff"; // צבעים שונים ל-AI ולמשתמש
+            bubble.innerText = message.text;
+            msgs.appendChild(bubble);
+        });
     }
     msgs.scrollTop = msgs.scrollHeight;
 }
@@ -447,15 +468,20 @@ function addMessageToHistory(role, text) {
 }
 
 function getChatLearningInputText() {
-    return chatHistory
+    const inputText = chatHistory
         .filter(message => message.role === "user")
         .map(message => String(message.text || "").trim())
         .filter(text => text.length >= 12)
         .join("\n");
+
+    console.log("[DEBUG] Input text for learning:", inputText); // לוג לבדיקת הטקסט הנכנס
+    return inputText;
 }
 
 function getChatLearningCandidates(text) {
     const source = String(text || "");
+    console.log("[DEBUG] Source text for candidates:", source); // לוג לבדיקת הטקסט המקורי
+
     const words = source.match(/[\u0590-\u05FF]{3,24}/g) || [];
     const stopwords = new Set(["של", "עם", "אבל", "האם", "אני", "אתה", "אתם", "היא", "הוא", "זה", "זאת", "מה", "איך", "למה", "כי", "גם", "רק", "עוד", "כדי"]);
     const counts = {};
@@ -464,11 +490,14 @@ function getChatLearningCandidates(text) {
         if (!key || stopwords.has(key)) return;
         counts[key] = (counts[key] || 0) + 1;
     });
+
     const vocabulary = Object.entries(counts)
         .filter(([, count]) => count >= 2)
         .sort((a, b) => b[1] - a[1])
         .slice(0, 40)
         .map(([word]) => word);
+
+    console.log("[DEBUG] Extracted vocabulary:", vocabulary); // לוג לבדיקת המילים שנלמדו
 
     const phrasesByCount = {};
     source
@@ -479,11 +508,14 @@ function getChatLearningCandidates(text) {
             const key = normalizeForCompare(item);
             phrasesByCount[key] = (phrasesByCount[key] || 0) + 1;
         });
+
     const phrases = Object.entries(phrasesByCount)
         .filter(([, count]) => count >= 2)
         .sort((a, b) => b[1] - a[1])
         .slice(0, 25)
         .map(([phrase]) => phrase);
+
+    console.log("[DEBUG] Extracted phrases:", phrases); // לוג לבדיקת הביטויים שנלמדו
 
     return { vocabulary, phrases };
 }
@@ -2386,12 +2418,683 @@ function getApiKey() { return rsGet("geminiApiKey") || document.getElementById("
 function getPerplexityApiKey() { return rsGet("perplexityApiKey") || document.getElementById("perplexityApiKey").value.trim(); }
 
 // ─── Study Materials ──────────────────────────────────────────────────────
+function setCloudLoading(isLoading, message = "") {
+    const el = document.getElementById("cloudLoading");
+    if (!el) return;
+    el.innerText = message || "⏳ טוען נתוני ענן...";
+    el.classList.toggle("hidden", !isLoading);
+}
+
+function setCloudAuthStatus(message, isError = false) {
+    const el = document.getElementById("cloudAuthStatus");
+    if (!el) return;
+    el.innerText = message;
+    el.style.color = isError ? "#b42318" : "";
+}
+
+function setCloudMaterialsStatus(message, isError = false) {
+    const el = document.getElementById("cloudMaterialsStatus");
+    if (!el) return;
+    el.innerText = message;
+    el.style.color = isError ? "#b42318" : "";
+}
+
+function safeCloudLog(action, details = {}) {
+    debugLog(`cloud.${action} ${JSON.stringify(details).slice(0, 180)}`);
+}
+
+function normalizeMaterialFileName(material) {
+    return material.fileName || material.name || material.title || material.id || "material";
+}
+
+function getMaterialExt(material) {
+    const explicit = String(material.type || "").toLowerCase().trim();
+    if (explicit === "application/pdf" || explicit === "pdf") return "pdf";
+    if (explicit === "docx" || explicit.includes("word")) return "docx";
+    if (explicit === "text" || explicit.startsWith("text/")) return "txt";
+
+    const fileName = normalizeMaterialFileName(material);
+    const parts = fileName.split(".");
+    return parts.length > 1 ? parts.pop().toLowerCase() : "";
+}
+
+function toPublicDownloadUrl(rawUrl, fallbackObjectPath = "") {
+    const trimmed = String(rawUrl || "").trim();
+    if (!trimmed) return "";
+    if (trimmed.startsWith("gs://")) {
+        const noScheme = trimmed.slice(5);
+        const slashAt = noScheme.indexOf("/");
+        if (slashAt < 0) {
+            if (!fallbackObjectPath) return "";
+            const bucketOnly = noScheme.trim();
+            if (!bucketOnly) return "";
+            return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucketOnly)}/o/${encodeURIComponent(fallbackObjectPath)}?alt=media`;
+        }
+        if (slashAt === 0) return "";
+        const bucket = noScheme.slice(0, slashAt);
+        const objectPath = noScheme.slice(slashAt + 1) || fallbackObjectPath;
+        if (!objectPath) return "";
+        return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucket)}/o/${encodeURIComponent(objectPath)}?alt=media`;
+    }
+    return trimmed;
+}
+
+function inferFileNameFromUrl(url) {
+    try {
+        const u = new URL(url);
+        const path = decodeURIComponent(u.pathname || "");
+        const last = path.split("/").filter(Boolean).pop() || "material.pdf";
+        if (last.includes(".")) return last;
+        return `${last}.pdf`;
+    } catch {
+        return "material.pdf";
+    }
+}
+
+async function importPublicCloudUrlIntoContext(rawUrl) {
+    const input = String(rawUrl || "").trim();
+    const isBucketOnlyGs = /^gs:\/\/[^/]+\/?$/.test(input);
+    const sourceUrl = isBucketOnlyGs
+        ? toPublicDownloadUrl(input, "index.json")
+        : toPublicDownloadUrl(input);
+    if (!sourceUrl) throw new Error("קישור לא תקין");
+
+    if (/\.json(\?|$)/i.test(sourceUrl)) {
+        const remote = await fetchMaterialsFromIndexUrl(sourceUrl, "storage");
+        if (!remote.length) {
+            if (isBucketOnlyGs) {
+                throw new Error("לא נמצא index.json בשורש ה-bucket. הוסף קובץ אינדקס או ספק קישור ישיר לקובץ.");
+            }
+            throw new Error("לא נמצאו חומרים בקובץ האינדקס שסופק");
+        }
+        return { kind: "index", count: remote.length, materials: remote };
+    }
+
+    const fileName = inferFileNameFromUrl(sourceUrl);
+    const material = {
+        id: `storage-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        courseId: "storage",
+        title: fileName,
+        name: fileName,
+        fileName,
+        type: fileName.split(".").pop().toLowerCase(),
+        directUrl: sourceUrl,
+    };
+    return { kind: "single", count: 1, materials: [material] };
+}
+
+async function syncStorageToLocal(source) {
+    const response = await fetch("/api/storage-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload?.ok) {
+        throw new Error(payload?.error || "סנכרון לתיקייה המקומית נכשל");
+    }
+    return payload.data || { syncedFiles: [], count: 0, indexCount: 0 };
+}
+
+function materialSignature(material) {
+    const name = String(material.fileName || material.title || material.id || "").trim().toLowerCase();
+    const ext = String(getMaterialExt(material) || "").trim().toLowerCase();
+    const sourceUrl = String(material.syncedFrom || material.directUrl || "").trim().toLowerCase();
+    return `${name}::${ext}::${sourceUrl}`;
+}
+
+function areMaterialSetsDifferent(primary = [], secondary = []) {
+    const a = new Set(primary.map(materialSignature));
+    const b = new Set(secondary.map(materialSignature));
+    if (a.size !== b.size) return true;
+    for (const sig of a) {
+        if (!b.has(sig)) return true;
+    }
+    return false;
+}
+
+function mergeMaterials(primary = [], secondary = []) {
+    const merged = [];
+    const seen = new Set();
+    for (const material of [...primary, ...secondary]) {
+        const sig = materialSignature(material);
+        if (seen.has(sig)) continue;
+        seen.add(sig);
+        merged.push(material);
+    }
+    return merged;
+}
+
+function isLikelyProcessedMaterial(material) {
+    const title = String(material.title || material.name || material.fileName || "").toLowerCase();
+    const type = String(material.type || "").toLowerCase();
+    const tags = Array.isArray(material.tags) ? material.tags.map((t) => String(t).toLowerCase()) : [];
+    const source = `${title} ${type} ${tags.join(" ")}`;
+
+    // מסנן סיכומים/נגזרות כדי להעדיף חומרי גלם מקוריים.
+    const processedHints = [
+        "summary", "summarized", "abstract", "flashcard", "processed", "generated",
+        "סיכום", "תקציר", "תמצית", "כרטיסיות", "מעובד", "נגזר", "מחולל"
+    ];
+    return processedHints.some((hint) => source.includes(hint));
+}
+
+function filterRawCloudMaterials(materials = []) {
+    const all = Array.isArray(materials) ? materials : [];
+    return all.filter((material) => !isLikelyProcessedMaterial(material));
+}
+
+function getCloudCacheKey(material) {
+    const courseId = material.courseId || "global";
+    return `${courseId}:${material.id}`;
+}
+
+function normalizeFolderKey(value) {
+    return String(value || "")
+        .trim()
+        .replace(/\\/g, "/")
+        .replace(/^\/+|\/+$/g, "")
+        .toLowerCase();
+}
+
+function extractFolderFromFilePath(filePath) {
+    const normalized = String(filePath || "").trim().replace(/\\/g, "/");
+    if (!normalized) return "";
+    const parts = normalized.split("/").filter(Boolean);
+    if (parts.length <= 1) return "";
+    return parts.slice(0, -1).join("/");
+}
+
+function normalizeTocEntries(rawToc) {
+    if (!Array.isArray(rawToc)) return [];
+    const entries = [];
+    for (const item of rawToc) {
+        if (typeof item === "string") {
+            const title = item.trim();
+            if (title) entries.push({ title, id: "" });
+            continue;
+        }
+        const title = String(item?.title || item?.label || item?.name || "").trim();
+        if (!title) continue;
+        entries.push({ title, id: String(item?.id || item?.anchor || "").trim() });
+    }
+    return entries;
+}
+
+function getMaterialCompositeId(material) {
+    return `${material.courseId || ""}:${material.id}`;
+}
+
+function getFilteredCloudMaterials() {
+    if (!cloudSelectedFolderKeys.size) return cloudMaterials;
+    return cloudMaterials.filter((material) => cloudSelectedFolderKeys.has(material.folderKey || "root"));
+}
+
+function pruneCloudSelectedMaterialIds() {
+    const available = new Set(cloudMaterials.map((material) => getMaterialCompositeId(material)));
+    cloudSelectedMaterialIds = new Set([...cloudSelectedMaterialIds].filter((id) => available.has(id)));
+}
+
+function syncMaterialSelectionWithSelectedFolders() {
+    if (!cloudSelectedFolderKeys.size) return;
+    // שומר בחירות ידניות קיימות ומאמץ לפי תיקיות רק כשאין בחירה קודמת.
+    if (cloudSelectedMaterialIds.size > 0) return;
+    for (const material of cloudMaterials) {
+        if (!cloudSelectedFolderKeys.has(material.folderKey || "root")) continue;
+        cloudSelectedMaterialIds.add(getMaterialCompositeId(material));
+    }
+}
+
+function loadCloudSelectionState() {
+    try {
+        const raw = rsGet(CLOUD_SELECTED_IDS_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        cloudSelectedMaterialIds = new Set(Array.isArray(parsed) ? parsed : []);
+    } catch {
+        cloudSelectedMaterialIds = new Set();
+    }
+}
+
+function saveCloudSelectionState() {
+    rsSet(CLOUD_SELECTED_IDS_KEY, JSON.stringify([...cloudSelectedMaterialIds]));
+}
+
+function loadCloudFolderSelectionState() {
+    try {
+        const raw = rsGet(CLOUD_SELECTED_FOLDER_KEYS_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        cloudSelectedFolderKeys = new Set(
+            Array.isArray(parsed)
+                ? parsed.map((key) => normalizeFolderKey(key || "root")).filter(Boolean)
+                : []
+        );
+    } catch {
+        cloudSelectedFolderKeys = new Set();
+        rsSet(CLOUD_SELECTED_FOLDER_KEYS_KEY, "[]");
+    }
+}
+
+function saveCloudFolderSelectionState() {
+    rsSet(CLOUD_SELECTED_FOLDER_KEYS_KEY, JSON.stringify([...cloudSelectedFolderKeys]));
+}
+
+function renderCloudCourses() {
+    // מצב ללא קורסים: הרשימה מגיעה מתיקיית הפרויקט.
+}
+
+function renderCloudMaterials() {
+    const list = document.getElementById("cloudMaterialsList");
+    const visibleMaterials = getFilteredCloudMaterials();
+    if (!list) return;
+    if (!cloudMaterials.length) {
+        list.innerText = "לא נמצאו חומרים. אפשר להוסיף קבצים לתיקייה project-materials";
+        renderCloudFolderFilters();
+        renderCloudIndex();
+        return;
+    }
+
+    if (!visibleMaterials.length) {
+        list.innerText = "לא נמצאו חומרים בתיקיות שנבחרו";
+        renderCloudFolderFilters();
+        renderCloudIndex();
+        return;
+    }
+
+    list.innerHTML = visibleMaterials.map((material) => {
+        const id = getMaterialCompositeId(material);
+        const checked = cloudSelectedMaterialIds.has(id) ? "checked" : "";
+        const state = cloudMaterialLoadState.get(id) || "לא נטען";
+        const cls = state.includes("שגיאה") ? "error" : state === "נטען" ? "ready" : "";
+        const title = escapeHtml(material.title || material.name || material.id);
+        const folderText = material.folderLabel && material.folderLabel !== "root" ? ` · ${material.folderLabel}` : "";
+        const meta = escapeHtml(`${(material.type || getMaterialExt(material) || "file").toUpperCase()}${folderText}${material.updatedAt ? " · מעודכן" : ""}`);
+        const toc = Array.isArray(material.tocEntries) && material.tocEntries.length
+            ? `<div class="cloud-material-toc">אינדקס: ${material.tocEntries.map((entry) => escapeHtml(entry.title)).join(" • ")}</div>`
+            : "";
+        return `<label class="cloud-material-row">
+            <input type="checkbox" class="cloud-material-check" data-material-id="${escapeHtml(id)}" ${checked} />
+            <div>
+                <div class="cloud-material-title">${title}</div>
+                <div class="cloud-material-meta">${meta}</div>
+                ${toc}
+            </div>
+            <div class="cloud-material-state ${cls}">${escapeHtml(state)}</div>
+        </label>`;
+    }).join("");
+    renderCloudFolderFilters();
+    renderCloudIndex();
+}
+
+function renderCloudFolderFilters() {
+    const box = document.getElementById("cloudFolderFilters");
+    if (!box) return;
+    const byFolder = new Map();
+    for (const material of cloudMaterials) {
+        const key = material.folderKey || "root";
+        const info = byFolder.get(key) || { label: material.folderLabel || "root", count: 0 };
+        info.count += 1;
+        byFolder.set(key, info);
+    }
+
+    if (!byFolder.size) {
+        box.innerHTML = "";
+        return;
+    }
+
+    box.innerHTML = [...byFolder.entries()]
+        .sort((a, b) => a[1].label.localeCompare(b[1].label, "he"))
+        .map(([key, info]) => {
+            const checked = cloudSelectedFolderKeys.has(key) ? "checked" : "";
+            return `<label class="cloud-folder-filter-row">
+                <input type="checkbox" class="cloud-folder-filter-check" data-folder-key="${escapeHtml(key)}" ${checked} />
+                <span>${escapeHtml(info.label)} (${info.count})</span>
+            </label>`;
+        })
+        .join("");
+}
+
+function renderCloudIndex() {
+    const box = document.getElementById("cloudIndexList");
+    if (!box) return;
+    const visibleMaterials = getFilteredCloudMaterials()
+        .filter((material) => cloudSelectedMaterialIds.has(getMaterialCompositeId(material)));
+    if (!visibleMaterials.length) {
+        box.innerHTML = "אין עדיין תוכן להצגה";
+        return;
+    }
+
+    const grouped = new Map();
+    for (const material of visibleMaterials) {
+        const key = material.folderKey || "root";
+        if (!grouped.has(key)) grouped.set(key, { label: material.folderLabel || "root", items: [] });
+        grouped.get(key).items.push(material);
+    }
+
+    box.innerHTML = [...grouped.values()]
+        .sort((a, b) => a.label.localeCompare(b.label, "he"))
+        .map((group) => {
+            const items = group.items
+                .sort((a, b) => String(a.title || "").localeCompare(String(b.title || ""), "he"))
+                .map((material) => {
+                    const tocItems = Array.isArray(material.tocEntries) && material.tocEntries.length
+                        ? `<ul class="cloud-index-sublist">${material.tocEntries.map((entry) => `<li>${escapeHtml(entry.title)}</li>`).join("")}</ul>`
+                        : "";
+                    return `<li><span class="cloud-index-item-title">${escapeHtml(material.title || material.fileName || material.id)}</span>${tocItems}</li>`;
+                })
+                .join("");
+            return `<details class="cloud-index-group" open>
+                <summary>${escapeHtml(group.label)} (${group.items.length})</summary>
+                <ul class="cloud-index-list-items">${items}</ul>
+            </details>`;
+        })
+        .join("");
+}
+
+async function extractTextFromCloudBlob(blob, material) {
+    const ext = getMaterialExt(material);
+    const maxBytes = 12 * 1024 * 1024;
+    if (blob.size > maxBytes) {
+        throw new Error("הקובץ גדול מדי לחילוץ טקסט בצד לקוח");
+    }
+    if (ext === "pdf" || ext === "docx") {
+        const file = new File([blob], normalizeMaterialFileName(material), { type: blob.type || "application/octet-stream" });
+        return extractTextFromFile(file);
+    }
+    if (["txt", "md", "csv", "json", "html", "htm"].includes(ext) || (blob.type || "").startsWith("text/")) {
+        return blob.text();
+    }
+    throw new Error(`סוג קובץ לא נתמך לחילוץ אוטומטי: ${ext || "unknown"}`);
+}
+
+async function cacheCloudMaterialText(material, forced = false) {
+    const id = `${material.courseId || ""}:${material.id}`;
+    if (!forced && cloudMaterialTextCache.has(id)) return cloudMaterialTextCache.get(id);
+
+    cloudMaterialLoadState.set(id, "טוען...");
+    renderCloudMaterials();
+    safeCloudLog("material.load.start", { id });
+
+    try {
+        if (!material.directUrl) {
+            throw new Error("לא נמצא קישור ישיר לקובץ");
+        }
+        const response = await fetch(material.directUrl);
+        if (!response.ok) {
+            throw new Error(`הקישור לא זמין (${response.status})`);
+        }
+        const blob = await response.blob();
+        const text = String(await extractTextFromCloudBlob(blob, material) || "").trim();
+        if (!text) throw new Error("לא זוהה טקסט בקובץ");
+        cloudMaterialTextCache.set(id, text);
+        cloudMaterialLoadState.set(id, "נטען");
+        renderCloudMaterials();
+        safeCloudLog("material.load.done", { id, len: text.length });
+        return text;
+    } catch (e) {
+        cloudMaterialLoadState.set(id, `שגיאה: ${e.message}`);
+        renderCloudMaterials();
+        safeCloudLog("material.load.error", { id, msg: e.message });
+        throw e;
+    }
+}
+
+async function fetchProjectMaterials() {
+    return fetchMaterialsFromIndexUrl(PROJECT_MATERIALS_INDEX_URL, "project");
+}
+
+async function fetchMaterialsFromIndexUrl(indexUrl, sourceKey = "project") {
+    try {
+        const urlWithBust = `${indexUrl}${indexUrl.includes("?") ? "&" : "?"}t=${Date.now()}`;
+        const response = await fetch(urlWithBust);
+        if (!response.ok) return [];
+        const rows = await response.json();
+        if (!Array.isArray(rows)) return [];
+        const baseUrl = new URL(indexUrl, window.location.href);
+
+        return rows
+            .map((row, idx) => {
+                const filePath = String(row.file || row.path || "").trim();
+                const directUrlRaw = String(row.url || (filePath ? filePath : "")).trim();
+                const directUrl = directUrlRaw
+                    ? new URL(directUrlRaw, baseUrl).toString()
+                    : "";
+                if (!directUrl) return null;
+                const fileName = filePath.split("/").pop() || `material-${idx + 1}`;
+                const id = String(row.id || filePath || `material-${idx + 1}`);
+                const rawFolder = String(row.folder || row.topic || row.course || extractFolderFromFilePath(filePath) || "root").trim();
+                const folderKey = normalizeFolderKey(rawFolder || "root") || "root";
+                return {
+                    id: `${sourceKey}-${id}`,
+                    courseId: sourceKey,
+                    title: row.title || fileName,
+                    fileName: row.fileName || fileName,
+                    filePath,
+                    type: row.type || "",
+                    folderKey,
+                    folderLabel: rawFolder || "root",
+                    tocEntries: normalizeTocEntries(row.toc),
+                    directUrl,
+                    syncedFrom: row.syncedFrom || "",
+                };
+            })
+            .filter(Boolean);
+    } catch {
+        return [];
+    }
+}
+
+async function loadCloudCourses(force = false) {
+    setCloudLoading(true, "⏳ טוען חומרים מתיקיית הפרויקט...");
+    try {
+        const fetchedMaterials = await fetchProjectMaterials();
+        cloudMaterials = filterRawCloudMaterials(fetchedMaterials);
+        pruneCloudSelectedMaterialIds();
+        syncMaterialSelectionWithSelectedFolders();
+        saveCloudSelectionState();
+        renderCloudMaterials();
+        if (!cloudMaterials.length) {
+            setCloudMaterialsStatus("לא נמצאו חומרים בתיקייה project-materials (בדוק index.json)");
+        } else {
+            setCloudMaterialsStatus(`נטענו ${cloudMaterials.length} חומרים מתיקיית הפרויקט`);
+        }
+        safeCloudLog("project.materials.loaded", { count: cloudMaterials.length, force });
+        await preloadSelectedCloudMaterials();
+    } catch (e) {
+        setCloudMaterialsStatus("שגיאה בטעינת חומרים מקומיים: " + e.message, true);
+    } finally {
+        setCloudLoading(false);
+    }
+}
+
+async function loadCloudMaterials(courseId, force = false) {
+    await loadCloudCourses(force);
+}
+
+async function onCloudMaterialSelectionChange(materialId, checked) {
+    const material = cloudMaterials.find((m) => getMaterialCompositeId(m) === materialId);
+    if (!material) return;
+
+    if (checked) {
+        cloudSelectedMaterialIds.add(materialId);
+        saveCloudSelectionState();
+        try {
+            await cacheCloudMaterialText(material);
+            setCloudMaterialsStatus(`החומר '${material.title || material.id}' נוסף כהקשר`);
+        } catch (e) {
+            cloudSelectedMaterialIds.delete(materialId);
+            saveCloudSelectionState();
+            setCloudMaterialsStatus(`לא ניתן לטעון '${material.title || material.id}': ${e.message}`, true);
+        }
+    } else {
+        cloudSelectedMaterialIds.delete(materialId);
+        saveCloudSelectionState();
+        setCloudMaterialsStatus("עודכן סט חומרים להקשר");
+    }
+    renderCloudMaterials();
+}
+
+async function preloadSelectedCloudMaterials() {
+    const selectedNow = cloudMaterials.filter((m) => cloudSelectedMaterialIds.has(getMaterialCompositeId(m)));
+    if (!selectedNow.length) return;
+
+    setCloudMaterialsStatus(`טוען ${selectedNow.length} חומרים מסומנים...`);
+    const results = await Promise.allSettled(selectedNow.map((material) => cacheCloudMaterialText(material)));
+    const failed = results.filter((r) => r.status === "rejected").length;
+    if (failed) {
+        setCloudMaterialsStatus(`נטענו ${selectedNow.length - failed}/${selectedNow.length} חומרים`, true);
+    } else {
+        setCloudMaterialsStatus(`נטענו ${selectedNow.length} חומרים מסומנים`);
+    }
+}
+
+async function selectCloudMaterialsByFilePaths(filePaths = []) {
+    if (!cloudMaterials.length || !filePaths.length) return;
+    const wanted = new Set(filePaths.map((value) => String(value || "").trim().toLowerCase()));
+    const selectedIds = cloudMaterials
+        .filter((material) => wanted.has(String(material.filePath || material.fileName || "").trim().toLowerCase()))
+        .map((material) => getMaterialCompositeId(material));
+    if (!selectedIds.length) return;
+    for (const id of selectedIds) cloudSelectedMaterialIds.add(id);
+    saveCloudSelectionState();
+    renderCloudMaterials();
+    await preloadSelectedCloudMaterials();
+}
+
+function buildCloudStudyContext() {
+    const blocks = [];
+    for (const material of getFilteredCloudMaterials()) {
+        const id = getMaterialCompositeId(material);
+        if (!cloudSelectedMaterialIds.has(id)) continue;
+        const cachedText = cloudMaterialTextCache.get(id);
+        if (!cachedText) continue;
+        const tocLine = Array.isArray(material.tocEntries) && material.tocEntries.length
+            ? `\nאינדקס: ${material.tocEntries.map((entry) => entry.title).join(" | ")}`
+            : "";
+        blocks.push(`=== חומר: ${material.title || material.id} (${material.folderLabel || "root"}) ===${tocLine}\n${cachedText.slice(0, 5500)}`);
+    }
+
+    if (!blocks.length) return "";
+    return `\n\nCloud Study Materials (retrieved from Firebase):\n${blocks.join("\n\n")}`;
+}
+
+function setupCloudEvents() {
+    const materialsList = document.getElementById("cloudMaterialsList");
+    const folderFilters = document.getElementById("cloudFolderFilters");
+    const publicUrlInput = document.getElementById("cloudPublicUrl");
+    const importUrlBtn = document.getElementById("cloudImportUrlBtn");
+    const downloadToLocalToggle = document.getElementById("cloudDownloadToLocalToggle");
+
+    if (downloadToLocalToggle) {
+        const localSyncAvailable = !!import.meta.env.DEV && /localhost|127\.0\.0\.1/i.test(window.location.hostname || "");
+        downloadToLocalToggle.disabled = !localSyncAvailable;
+        if (!localSyncAvailable) {
+            downloadToLocalToggle.checked = false;
+            setCloudMaterialsStatus("הורדה לתיקייה המקומית זמינה רק בזמן npm run dev על localhost");
+        }
+    }
+
+    if (materialsList && !materialsList.dataset.bound) {
+        materialsList.addEventListener("change", async (e) => {
+            const cb = e.target.closest(".cloud-material-check");
+            if (!cb) return;
+            await onCloudMaterialSelectionChange(cb.dataset.materialId, cb.checked);
+        });
+        materialsList.dataset.bound = "true";
+    }
+
+    if (folderFilters && !folderFilters.dataset.bound) {
+        folderFilters.addEventListener("change", async (e) => {
+            const cb = e.target.closest(".cloud-folder-filter-check");
+            if (!cb) return;
+            const folderKey = normalizeFolderKey(cb.dataset.folderKey || "root") || "root";
+            if (cb.checked) {
+                cloudSelectedFolderKeys.add(folderKey);
+                for (const material of cloudMaterials) {
+                    if ((material.folderKey || "root") !== folderKey) continue;
+                    cloudSelectedMaterialIds.add(getMaterialCompositeId(material));
+                }
+                saveCloudSelectionState();
+                saveCloudFolderSelectionState();
+                renderCloudMaterials();
+                await preloadSelectedCloudMaterials();
+                setCloudMaterialsStatus("התיקייה נוספה להקשר");
+                return;
+            }
+
+            cloudSelectedFolderKeys.delete(folderKey);
+            for (const material of cloudMaterials) {
+                if ((material.folderKey || "root") !== folderKey) continue;
+                cloudSelectedMaterialIds.delete(getMaterialCompositeId(material));
+            }
+            saveCloudSelectionState();
+            saveCloudFolderSelectionState();
+            renderCloudMaterials();
+            setCloudMaterialsStatus("התיקייה הוסרה מהקשר");
+        });
+        folderFilters.dataset.bound = "true";
+    }
+
+    if (importUrlBtn && !importUrlBtn.dataset.bound) {
+        importUrlBtn.onclick = async () => {
+            const rawUrl = (publicUrlInput?.value || "").trim();
+            const shouldDownloadToLocal = !!downloadToLocalToggle?.checked;
+            if (!rawUrl) {
+                setCloudMaterialsStatus("אין קישור סטורג׳. נטען רק מתיקיית הפרויקט.");
+                await loadCloudCourses(true);
+                return;
+            }
+
+            setCloudLoading(true, shouldDownloadToLocal ? "⏳ מוריד לתיקייה המקומית..." : "⏳ טוען קודם מהסטורג׳...");
+            try {
+                if (shouldDownloadToLocal) {
+                    const syncResult = await syncStorageToLocal(rawUrl);
+                    await loadCloudCourses(true);
+                    await selectCloudMaterialsByFilePaths(syncResult.syncedFiles || []);
+                    setCloudMaterialsStatus(`הורדו ${syncResult.count || 0} חומרים לתיקייה המקומית ונטענו בהצלחה`);
+                    if (publicUrlInput) publicUrlInput.value = "";
+                    return;
+                }
+
+                const storageResult = await importPublicCloudUrlIntoContext(rawUrl);
+                const storageMaterials = filterRawCloudMaterials(storageResult.materials || []);
+                const projectMaterials = filterRawCloudMaterials(await fetchProjectMaterials());
+
+                let finalMaterials = storageMaterials;
+                if (projectMaterials.length && areMaterialSetsDifferent(storageMaterials, projectMaterials)) {
+                    const includeProject = window.confirm("זוהו קבצים שונים בין הסטורג׳ לתיקיית הפרויקט. לגשת גם לתיקייה המקומית?");
+                    if (includeProject) {
+                        finalMaterials = mergeMaterials(storageMaterials, projectMaterials);
+                    }
+                }
+
+                cloudMaterials = finalMaterials;
+                pruneCloudSelectedMaterialIds();
+                syncMaterialSelectionWithSelectedFolders();
+                saveCloudSelectionState();
+                renderCloudMaterials();
+                await preloadSelectedCloudMaterials();
+                setCloudMaterialsStatus(`נטענו ${cloudMaterials.length} חומרים (סטורג׳${cloudMaterials.length !== storageMaterials.length ? " + תיקייה" : " בלבד"})`);
+                if (publicUrlInput) publicUrlInput.value = "";
+            } catch (e) {
+                setCloudMaterialsStatus(`שגיאה בטעינת קישור: ${e.message}`, true);
+            } finally {
+                setCloudLoading(false);
+            }
+        };
+        importUrlBtn.dataset.bound = "true";
+    }
+}
+
+function setupCloudAuthObserver() {
+    setCloudAuthStatus("ללא התחברות");
+    setCloudMaterialsStatus("אפשר לטעון מתיקיית project-materials או מקישור ציבורי");
+    loadCloudCourses(true);
+}
+
 function getStudyContext() {
-    const ref = document.getElementById("refMaterials")?.value.trim();
-    const cls = document.getElementById("classMaterials")?.value.trim();
+    const cloud = buildCloudStudyContext();
     let ctx = "";
-    if (ref) ctx += `\n\nחומרי עזר שסופקו (ground your response in these):\n${ref}`;
-    if (cls) ctx += `\n\nחומר לימודי כיתה (prefer these theories/concepts):\n${cls}`;
+    if (cloud) ctx += cloud;
     return ctx;
 }
 
@@ -2485,27 +3188,22 @@ function debugLog(message) {
 }
 
 function saveMaterials() {
-    rsSet("studyRefMaterials", document.getElementById("refMaterials").value);
-    rsSet("studyClassMaterials", document.getElementById("classMaterials").value);
     rsSet(AGENT_RULES_KEY, document.getElementById("agentRules")?.value || "");
     rsSet(ASSIGNMENT_GUIDELINES_KEY, document.getElementById("assignmentGuidelines")?.value || "");
     rsSet(REVIEW_DEPTH_KEY, document.getElementById("reviewDepth")?.value || "standard");
     rsSet(DEBUG_MODE_KEY, document.getElementById("debugModeToggle")?.checked ? "1" : "0");
-    document.getElementById("materialsStatus").innerText = "✅ החומרים נשמרו";
+    const statusEl = document.getElementById("materialsStatus");
+    if (statusEl) statusEl.innerText = "✅ ההגדרות נשמרו";
     debugLog(`settings.saved rulesLen=${getAgentRulesText().length}`);
     setTimeout(() => document.getElementById("settingsPanel").classList.add("hidden"), 1500);
 }
 
 function loadMaterials() {
-    const ref = rsGet("studyRefMaterials");
-    const cls = rsGet("studyClassMaterials");
     const rules = rsGet(AGENT_RULES_KEY);
     const assignmentGuidelines = rsGet(ASSIGNMENT_GUIDELINES_KEY);
     const reviewDepth = rsGet(REVIEW_DEPTH_KEY);
     const fileName = rsGet(ASSIGNMENT_GUIDELINES_FILE_NAME_KEY);
     const debugEnabled = rsGet(DEBUG_MODE_KEY) === "1";
-    if (ref) document.getElementById("refMaterials").value = ref;
-    if (cls) document.getElementById("classMaterials").value = cls;
     if (rules) document.getElementById("agentRules").value = rules;
     if (assignmentGuidelines) document.getElementById("assignmentGuidelines").value = assignmentGuidelines;
     if (reviewDepth) document.getElementById("reviewDepth").value = reviewDepth;
@@ -2604,7 +3302,11 @@ Office.onReady(async (info) => {
             document.getElementById("stylePanel").classList.add("hidden");
         };
         document.getElementById("saveKeyBtn").onclick = saveApiKey;
-        document.getElementById("saveMaterialsBtn").onclick = saveMaterials;
+        const saveMaterialsBtn = document.getElementById("saveMaterialsBtn");
+        if (saveMaterialsBtn) saveMaterialsBtn.onclick = saveMaterials;
+        loadCloudSelectionState();
+        loadCloudFolderSelectionState();
+        setupCloudEvents();
         const debugToggle = document.getElementById("debugModeToggle");
         if (debugToggle) {
             debugToggle.onchange = () => {
@@ -2681,6 +3383,7 @@ Office.onReady(async (info) => {
 
         loadApiKey();
         loadMaterials();
+        setupCloudAuthObserver();
         debugLog("init.materials.loaded");
         loadChatSessions();
         debugLog("init.chat.loaded");

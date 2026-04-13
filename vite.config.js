@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import https from 'https';
+import { execFile } from 'child_process';
 
 const STYLE_FILE = path.resolve(process.cwd(), 'my_personal_style.json');
 const MAX_BODY_BYTES = 65536; // 64 KB hard cap for POST /api/style
@@ -86,6 +87,61 @@ function styleBankPlugin() {
   return {
     name: 'style-bank',
     configureServer(server) {
+
+      server.middlewares.use('/api/storage-sync', (req, res) => {
+        if (req.method === 'OPTIONS') { res.writeHead(204, CORS_HEADERS); res.end(); return; }
+
+        if (req.method !== 'POST') {
+          res.writeHead(405, CORS_HEADERS);
+          res.end();
+          return;
+        }
+
+        let body = '';
+        let bodyBytes = 0;
+        req.on('data', chunk => {
+          bodyBytes += chunk.length;
+          if (bodyBytes > MAX_BODY_BYTES) {
+            req.destroy();
+            if (!res.headersSent) {
+              res.writeHead(413, CORS_HEADERS);
+              res.end(JSON.stringify({ error: 'payload too large' }));
+            }
+            return;
+          }
+          body += chunk;
+        });
+        req.on('end', () => {
+          try {
+            const { source } = JSON.parse(body || '{}');
+            const trimmedSource = String(source || '').trim();
+            if (!trimmedSource) {
+              res.writeHead(400, { ...CORS_HEADERS, 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'source is required' }));
+              return;
+            }
+
+            execFile(
+              process.execPath,
+              [path.resolve(process.cwd(), 'scripts', 'sync-storage-to-local.mjs'), trimmedSource, '--json'],
+              { cwd: process.cwd(), timeout: 120000, maxBuffer: 1024 * 1024 },
+              (error, stdout, stderr) => {
+                if (error) {
+                  res.writeHead(500, { ...CORS_HEADERS, 'Content-Type': 'application/json' });
+                  res.end(JSON.stringify({ ok: false, error: stderr || stdout || error.message }));
+                  return;
+                }
+                const parsed = JSON.parse(stdout || '{}');
+                res.writeHead(200, { ...CORS_HEADERS, 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: true, data: parsed }));
+              }
+            );
+          } catch (e) {
+            res.writeHead(500, { ...CORS_HEADERS, 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: e.message }));
+          }
+        });
+      });
 
       // ── /api/validate-doi?doi=10.xxxx/yyy  (server-side HEAD, no CORS) ──
       server.middlewares.use('/api/validate-doi', (req, res) => {

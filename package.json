@@ -2,14 +2,19 @@
   "name": "word-ai-assistant",
   "version": "1.0.0",
   "description": "Word AI Assistant built with Vite",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "sync:storage": "node scripts/sync-storage-to-local.mjs"
   },
   "dependencies": {
     "@microsoft/office-js": "^1.1.91",
-    "core-js": "^3.36.0"
+    "core-js": "^3.36.0",
+    "firebase": "^12.12.0"
   },
   "devDependencies": {
     "office-addin-dev-certs": "^1.11.8",

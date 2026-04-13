@@ -22,7 +22,7 @@ A modern, custom Microsoft Word Add-in that integrates the **Google Gemini (2.5)
 * **Secure Key Storage**: Your personal Gemini API key is securely saved locally in the Add-in's `localStorage` (via the ⚙️ Settings menu) instead of being hardcoded and exposed in the source files.
 
 ## 🚀 Prerequisites
-- Node.js (v16+)
+- Node.js (v20+)
 - Microsoft Word (Desktop/Mac or Word Online)
 - A [Google Gemini AI API Key](https://aistudio.google.com/app/apikey)
 
@@ -63,6 +63,37 @@ For security reasons, do **not** hardcode your API key into the HTML or Javascri
 2. Click the **Settings (⚙️)** icon in the top right.
 3. Paste your Gemini API Key and click **Save**. 
 4. The key is now safely stored on your device and will be remembered for future sessions.
+
+## ☁️ Study Materials From Storage Or Project Folder
+The add-in now works best with local project materials, with an optional one-way sync from Firebase Storage into the project folder.
+
+Local project folder:
+1. Put your files under `public/project-materials/`.
+2. List them in `public/project-materials/index.json`.
+3. The add-in will load them locally and inject selected files into AI context.
+
+Sync from Firebase Storage into the local folder:
+1. In Storage, keep an `index.json` file at the bucket root or provide a direct URL to any remote index file.
+2. Run:
+    ```bash
+    npm run sync:storage -- gs://my-study-b-b.firebasestorage.app
+    ```
+3. The script downloads all indexed files into `public/project-materials/` and rewrites the local `index.json`.
+4. After that, run the add-in normally with `npm run dev`.
+
+Expected `index.json` format:
+```json
+[
+   {
+      "id": "article-1",
+      "title": "Political Communication Article",
+      "file": "materials/political-communication.pdf",
+      "type": "pdf"
+   }
+]
+```
+
+Supported extraction: `pdf`, `docx`, and text-based files such as `txt`, `md`, `csv`, `json`, `html`.
 
 ## 🏗️ Built With
 - **Vanilla JS & HTML5**
